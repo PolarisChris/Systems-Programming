@@ -19,13 +19,13 @@
 
 #define BUFFER_SIZE 4096
 
-static void write_str(int fd, const char *msg) {
-    while (*msg != '\0') {
-        ssize_t written = write(fd, msg, strlen(msg));
+static void write_str(int file_descriptor, const char *message) {
+    while (*message != '\0') {
+        ssize_t written = write(file_descriptor, message, strlen(message));
         if (written <= 0) {
             return;
         }
-        msg += written;
+        message += written;
     }
 }
 
@@ -37,11 +37,13 @@ static void write_error(const char *prefix, const char *path) {
     write_str(STDERR_FILENO, "\n");
 }
 
-static int write_all(int fd, const char *buffer, ssize_t count) {
+static int write_all(int file_descriptor, const char *buffer, ssize_t byte_count) {
     ssize_t total_written = 0;
 
-    while (total_written < count) {
-        ssize_t written = write(fd, buffer + total_written, count - total_written);
+    while (total_written < byte_count) {
+        ssize_t written = write(file_descriptor,
+                                buffer + total_written,
+                                byte_count - total_written);
         if (written < 0) {
             return -1;
         }
@@ -60,54 +62,54 @@ int main(int argc, char *argv[]) {
     const char *source_file = argv[1];
     const char *destination_file = argv[2];
 
-    int src_fd = open(source_file, O_RDONLY);
-    if (src_fd < 0) {
+    int source_fd = open(source_file, O_RDONLY);
+    if (source_fd < 0) {
         write_error("Error opening source file ", source_file);
         return EXIT_FAILURE;
     }
 
-    struct stat src_stat;
-    if (fstat(src_fd, &src_stat) < 0) {
+    struct stat source_stats;
+    if (fstat(source_fd, &source_stats) < 0) {
         write_error("Error getting permissions for source file ", source_file);
-        close(src_fd);
+        close(source_fd);
         return EXIT_FAILURE;
     }
 
-    int dest_fd = open(destination_file,
-                       O_WRONLY | O_CREAT | O_TRUNC,
-                       src_stat.st_mode & 07777);
-    if (dest_fd < 0) {
+    int destination_fd = open(destination_file,
+                              O_WRONLY | O_CREAT | O_TRUNC,
+                              source_stats.st_mode & 07777);
+    if (destination_fd < 0) {
         write_error("Error opening destination file ", destination_file);
-        close(src_fd);
+        close(source_fd);
         return EXIT_FAILURE;
     }
 
     char buffer[BUFFER_SIZE];
     ssize_t bytes_read;
 
-    while ((bytes_read = read(src_fd, buffer, BUFFER_SIZE)) > 0) {
-        if (write_all(dest_fd, buffer, bytes_read) < 0) {
+    while ((bytes_read = read(source_fd, buffer, BUFFER_SIZE)) > 0) {
+        if (write_all(destination_fd, buffer, bytes_read) < 0) {
             write_error("Error writing to destination file ", destination_file);
-            close(src_fd);
-            close(dest_fd);
+            close(source_fd);
+            close(destination_fd);
             return EXIT_FAILURE;
         }
     }
 
     if (bytes_read < 0) {
         write_error("Error reading source file ", source_file);
-        close(src_fd);
-        close(dest_fd);
+        close(source_fd);
+        close(destination_fd);
         return EXIT_FAILURE;
     }
 
-    if (close(src_fd) < 0) {
+    if (close(source_fd) < 0) {
         write_error("Error closing source file ", source_file);
-        close(dest_fd);
+        close(destination_fd);
         return EXIT_FAILURE;
     }
 
-    if (close(dest_fd) < 0) {
+    if (close(destination_fd) < 0) {
         write_error("Error closing destination file ", destination_file);
         return EXIT_FAILURE;
     }

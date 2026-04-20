@@ -22,12 +22,12 @@ int main(void) {
     }
 
     if (limit >= 0) {
-        for (int i = 0; i <= limit; i++) {
-            print_fizzbuzz(i);
+        for (int current_number = 0; current_number <= limit; current_number++) {
+            print_fizzbuzz(current_number);
         }
     } else {
-        for (int i = 0; i >= limit; i--) {
-            print_fizzbuzz(i);
+        for (int current_number = 0; current_number >= limit; current_number--) {
+            print_fizzbuzz(current_number);
         }
     }
 

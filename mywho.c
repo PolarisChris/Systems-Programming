@@ -32,82 +32,104 @@
 #endif
 
 static int open_utmp_file(void) {
-    const char *paths[] = {
+    const char *candidate_paths[] = {
         UTMP_FILE_CANDIDATE_1,
         UTMP_FILE_CANDIDATE_2,
         UTMP_FILE_CANDIDATE_3
     };
 
-    for (size_t i = 0; i < sizeof(paths) / sizeof(paths[0]); i++) {
-        int fd = open(paths[i], O_RDONLY);
-        if (fd != -1) {
-            return fd;
+    for (size_t path_index = 0;
+         path_index < sizeof(candidate_paths) / sizeof(candidate_paths[0]);
+         path_index++) {
+        int utmp_fd = open(candidate_paths[path_index], O_RDONLY);
+        if (utmp_fd != -1) {
+            return utmp_fd;
         }
     }
 
     return -1;
 }
 
-static void trim_copy(char *dest, size_t dest_size, const char *src, size_t src_size) {
-    size_t len = 0;
+static void trim_copy(char *destination,
+                      size_t destination_size,
+                      const char *source,
+                      size_t source_size) {
+    size_t copy_length = 0;
 
-    while (len < src_size && src[len] != '\0') {
-        len++;
+    while (copy_length < source_size && source[copy_length] != '\0') {
+        copy_length++;
     }
 
-    if (len >= dest_size) {
-        len = dest_size - 1;
+    if (copy_length >= destination_size) {
+        copy_length = destination_size - 1;
     }
 
-    memcpy(dest, src, len);
-    dest[len] = '\0';
+    memcpy(destination, source, copy_length);
+    destination[copy_length] = '\0';
 }
 
 int main(void) {
-    int fd = open_utmp_file();
-    if (fd == -1) {
+    int utmp_fd = open_utmp_file();
+    if (utmp_fd == -1) {
         perror("Error opening utmp file");
         return EXIT_FAILURE;
     }
 
-    struct utmp entry;
+    struct utmp utmp_entry;
     ssize_t bytes_read;
 
-    while ((bytes_read = read(fd, &entry, sizeof(entry))) == sizeof(entry)) {
-        if (entry.ut_type == USER_PROCESS) {
+    while ((bytes_read = read(utmp_fd, &utmp_entry, sizeof(utmp_entry))) ==
+           sizeof(utmp_entry)) {
+        if (utmp_entry.ut_type == USER_PROCESS) {
             char username[UT_NAMESIZE + 1];
-            char line[UT_LINESIZE + 1];
-            char host[UT_HOSTSIZE + 1];
-            char timebuf[64];
+            char terminal_line[UT_LINESIZE + 1];
+            char remote_host[UT_HOSTSIZE + 1];
+            char time_buffer[64];
 
-            trim_copy(username, sizeof(username), entry.ut_user, sizeof(entry.ut_user));
-            trim_copy(line, sizeof(line), entry.ut_line, sizeof(entry.ut_line));
-            trim_copy(host, sizeof(host), entry.ut_host, sizeof(entry.ut_host));
+            trim_copy(username,
+                      sizeof(username),
+                      utmp_entry.ut_user,
+                      sizeof(utmp_entry.ut_user));
+            trim_copy(terminal_line,
+                      sizeof(terminal_line),
+                      utmp_entry.ut_line,
+                      sizeof(utmp_entry.ut_line));
+            trim_copy(remote_host,
+                      sizeof(remote_host),
+                      utmp_entry.ut_host,
+                      sizeof(utmp_entry.ut_host));
 
-            time_t login_time = entry.ut_tv.tv_sec;
-            struct tm *tm_info = localtime(&login_time);
+            time_t login_time = utmp_entry.ut_tv.tv_sec;
+            struct tm *local_time_info = localtime(&login_time);
 
-            if (tm_info == NULL) {
-                strncpy(timebuf, "unknown time", sizeof(timebuf) - 1);
-                timebuf[sizeof(timebuf) - 1] = '\0';
+            if (local_time_info == NULL) {
+                strncpy(time_buffer, "unknown time", sizeof(time_buffer) - 1);
+                time_buffer[sizeof(time_buffer) - 1] = '\0';
             } else {
-                strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm_info);
+                strftime(time_buffer,
+                         sizeof(time_buffer),
+                         "%Y-%m-%d %H:%M:%S",
+                         local_time_info);
             }
 
-            if (strlen(host) > 0) {
-                printf("%-12s %-12s %-20s %s\n", username, line, timebuf, host);
+            if (strlen(remote_host) > 0) {
+                printf("%-12s %-12s %-20s %s\n",
+                       username,
+                       terminal_line,
+                       time_buffer,
+                       remote_host);
             } else {
-                printf("%-12s %-12s %-20s\n", username, line, timebuf);
+                printf("%-12s %-12s %-20s\n", username, terminal_line, time_buffer);
             }
         }
     }
 
     if (bytes_read == -1) {
         perror("Error reading utmp file");
-        close(fd);
+        close(utmp_fd);
         return EXIT_FAILURE;
     }
 
-    close(fd);
+    close(utmp_fd);
     return EXIT_SUCCESS;
 }

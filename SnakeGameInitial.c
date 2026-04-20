@@ -5,6 +5,9 @@
  * Chris did terminal setup, signals, cleanup, and status messaging.
  * Brandon did the shared game data and startup configuration.
  * Giovanni did input, rendering, movement, collision checks, and the main loop.
+ *
+ * Command to Build on Linux/WSL:
+ * gcc -Wall -Wextra -std=c11 SnakeGameInitial.c -lncursesw -o snake
  */
 
 #include <signal.h>
@@ -16,6 +19,8 @@
 #if defined(__has_include)
 #if __has_include(<ncurses.h>)
 #include <ncurses.h>
+#elif __has_include(<ncursesw/ncurses.h>)
+#include <ncursesw/ncurses.h>
 #elif __has_include(<ncursesw/curses.h>)
 #include <ncursesw/curses.h>
 #elif __has_include(<curses.h>)
