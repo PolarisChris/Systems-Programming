@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #if defined(__has_include)
 #if __has_include(<ncurses.h>)
@@ -34,8 +35,13 @@
 
 #define INITIAL_LENGTH 5
 #define FRAME_DELAY_MS 140
+#define MIN_FRAME_DELAY_MS 45
 #define MIN_ROWS 7
 #define MIN_COLS 12
+#define MIN_TROPHY_VALUE 1
+#define MAX_TROPHY_VALUE 9
+#define MIN_TROPHY_SECONDS 1
+#define MAX_TROPHY_SECONDS 9
 
 /* Brandon note: this struct stores one row/column coordinate for a snake segment. */
 typedef struct {
@@ -59,11 +65,21 @@ typedef struct {
     Direction direction;
 } Snake;
 
-/* Brandon note: this struct bundles board dimensions, snake data, and overall game status. */
+/* Brandon note: this struct keeps the single active trophy's value, position, and timeout. */
+typedef struct {
+    Point position;
+    int value;
+    time_t created_at;
+    int lifetime_seconds;
+} Trophy;
+
+/* Brandon note: this struct bundles board dimensions, snake data, trophy data, and game status. */
 typedef struct {
     int rows;
     int cols;
     Snake snake;
+    Trophy trophy;
+    int winning_length;
     bool running;
     char end_message[128];
 } Game;
@@ -147,15 +163,49 @@ static bool is_opposite(Direction current_direction, Direction proposed_directio
            (current_direction == DIR_RIGHT && proposed_direction == DIR_LEFT);
 }
 
+static int random_between(int minimum, int maximum) {
+    /* Brandon note: return one random integer inside the inclusive project range. */
+    return minimum + rand() % (maximum - minimum + 1);
+}
+
+static Direction random_direction(void) {
+    /* Brandon note: choose the initial snake direction randomly from the four choices. */
+    return (Direction)random_between(DIR_UP, DIR_RIGHT);
+}
+
+static int winning_length(const Game *game) {
+    /* Brandon note: calculate the required win length from half of the border perimeter. */
+    return (2 * game->rows + 2 * game->cols - 4) / 2;
+}
+
+static bool same_point(Point first_point, Point second_point) {
+    /* Giovanni -> coordinate check: report whether two board positions match. */
+    return first_point.row == second_point.row && first_point.col == second_point.col;
+}
+
+static bool point_on_snake(const Snake *snake, Point point) {
+    /* Giovanni -> placement check: keep trophies from appearing on top of the snake. */
+    int segment_index;
+
+    for (segment_index = 0; segment_index < snake->length; ++segment_index) {
+        if (same_point(snake->segments[segment_index], point)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void initialize_snake(Game *game) {
-    /* Brandon note: build the starting length-5 snake centered and facing right. */
+    /* Brandon note: build the starting length-5 snake centered with a random direction. */
     int center_row;
     int starting_head_col;
+    int starting_head_row;
     int segment_index;
 
     game->snake.capacity = (game->rows - 2) * (game->cols - 2);
     game->snake.length = INITIAL_LENGTH;
-    game->snake.direction = DIR_RIGHT;
+    game->snake.direction = random_direction();
     game->snake.segments = malloc((size_t)game->snake.capacity * sizeof(Point));
 
     if (game->snake.segments == NULL) {
@@ -163,42 +213,122 @@ static void initialize_snake(Game *game) {
     }
 
     center_row = game->rows / 2;
+    starting_head_row = center_row;
     starting_head_col = game->cols / 2;
 
-    if (starting_head_col < INITIAL_LENGTH) {
-        starting_head_col = INITIAL_LENGTH;
-    }
+    switch (game->snake.direction) {
+        case DIR_UP:
+            if (starting_head_row > game->rows - 1 - INITIAL_LENGTH) {
+                starting_head_row = game->rows - 1 - INITIAL_LENGTH;
+            }
+            break;
 
-    if (starting_head_col > game->cols - 2) {
-        starting_head_col = game->cols - 2;
+        case DIR_DOWN:
+            if (starting_head_row < INITIAL_LENGTH) {
+                starting_head_row = INITIAL_LENGTH;
+            }
+            break;
+
+        case DIR_LEFT:
+            if (starting_head_col > game->cols - 1 - INITIAL_LENGTH) {
+                starting_head_col = game->cols - 1 - INITIAL_LENGTH;
+            }
+            break;
+
+        case DIR_RIGHT:
+            if (starting_head_col < INITIAL_LENGTH) {
+                starting_head_col = INITIAL_LENGTH;
+            }
+            break;
     }
 
     for (segment_index = 0; segment_index < game->snake.length; ++segment_index) {
-        game->snake.segments[segment_index].row = center_row;
-        game->snake.segments[segment_index].col = starting_head_col - segment_index;
+        game->snake.segments[segment_index].row = starting_head_row;
+        game->snake.segments[segment_index].col = starting_head_col;
+
+        switch (game->snake.direction) {
+            case DIR_UP:
+                game->snake.segments[segment_index].row += segment_index;
+                break;
+
+            case DIR_DOWN:
+                game->snake.segments[segment_index].row -= segment_index;
+                break;
+
+            case DIR_LEFT:
+                game->snake.segments[segment_index].col += segment_index;
+                break;
+
+            case DIR_RIGHT:
+                game->snake.segments[segment_index].col -= segment_index;
+                break;
+        }
     }
+}
+
+static void spawn_trophy(Game *game) {
+    /* Brandon note: place exactly one random trophy inside the pit and away from the snake. */
+    Point next_position;
+
+    do {
+        next_position.row = random_between(1, game->rows - 2);
+        next_position.col = random_between(1, game->cols - 2);
+    } while (point_on_snake(&game->snake, next_position));
+
+    game->trophy.position = next_position;
+    game->trophy.value = random_between(MIN_TROPHY_VALUE, MAX_TROPHY_VALUE);
+    game->trophy.created_at = time(NULL);
+    game->trophy.lifetime_seconds = random_between(MIN_TROPHY_SECONDS, MAX_TROPHY_SECONDS);
 }
 
 static void initialize_game(Game *game) {
     /* Brandon note: wire up the initial game state before the first frame is drawn. */
     memset(game, 0, sizeof(*game));
+    srand((unsigned int)time(NULL));
     update_dimensions(game, true);
     initialize_snake(game);
+    game->winning_length = winning_length(game);
+    spawn_trophy(game);
     game->running = true;
     set_end_message(game, "Game ended.");
 }
 
 static void draw_game(const Game *game) {
-    /* Giovanni -> render pass: draw the border first, then paint the head and body. */
+    /* Giovanni -> render pass: draw the border, trophy, snake, and live game stats. */
+    char status_message[128];
     int segment_index;
+    int seconds_left;
+    int status_width;
 
     erase();
     box(stdscr, 0, 0);
+
+    seconds_left = game->trophy.lifetime_seconds -
+                   (int)(time(NULL) - game->trophy.created_at);
+    if (seconds_left < 0) {
+        seconds_left = 0;
+    }
+
+    mvaddch(game->trophy.position.row,
+            game->trophy.position.col,
+            (chtype)('0' + game->trophy.value));
 
     for (segment_index = 0; segment_index < game->snake.length; ++segment_index) {
         mvaddch(game->snake.segments[segment_index].row,
                 game->snake.segments[segment_index].col,
                 (segment_index == 0) ? '@' : 'o');
+    }
+
+    snprintf(status_message,
+             sizeof(status_message),
+             " Length: %d Goal: %d Trophy: %d Time: %d ",
+             game->snake.length,
+             game->winning_length,
+             game->trophy.value,
+             seconds_left);
+    status_width = game->cols - 4;
+    if (status_width > 0) {
+        mvaddnstr(0, 2, status_message, status_width);
     }
 
     refresh();
@@ -258,11 +388,14 @@ static void poll_input(Game *game) {
     }
 }
 
-static bool hits_body(const Snake *snake, Point next_head) {
+static bool hits_body(const Snake *snake, Point next_head, bool growing) {
     /* Giovanni -> collision check: test the next head position against the body. */
     int segment_index;
+    int checked_length;
 
-    for (segment_index = 0; segment_index < snake->length - 1; ++segment_index) {
+    checked_length = growing ? snake->length : snake->length - 1;
+
+    for (segment_index = 0; segment_index < checked_length; ++segment_index) {
         if (snake->segments[segment_index].row == next_head.row &&
             snake->segments[segment_index].col == next_head.col) {
             return true;
@@ -297,12 +430,32 @@ static Point next_head_position(const Snake *snake) {
     return next_head;
 }
 
+static bool trophy_expired(const Game *game) {
+    /* Brandon note: report when the current trophy's random timer has run out. */
+    return (int)(time(NULL) - game->trophy.created_at) >= game->trophy.lifetime_seconds;
+}
+
+static bool snake_eats_trophy(const Game *game, Point next_head) {
+    /* Giovanni -> trophy check: decide whether the next head cell earns growth. */
+    return same_point(next_head, game->trophy.position);
+}
+
 static void advance_snake(Game *game) {
-    /* Giovanni -> gameplay step: move one cell and stop on wall or self collisions. */
+    /* Giovanni -> gameplay step: move, grow on trophies, and stop on win/loss states. */
     Point next_head;
+    Point tail_copy;
     int segment_index;
+    int grow_amount;
+    int new_length;
+    bool growing;
+
+    if (trophy_expired(game)) {
+        spawn_trophy(game);
+    }
 
     next_head = next_head_position(&game->snake);
+    growing = snake_eats_trophy(game, next_head);
+    grow_amount = growing ? game->trophy.value : 0;
 
     if (next_head.row <= 0 || next_head.row >= game->rows - 1 ||
         next_head.col <= 0 || next_head.col >= game->cols - 1) {
@@ -311,10 +464,16 @@ static void advance_snake(Game *game) {
         return;
     }
 
-    if (hits_body(&game->snake, next_head)) {
+    if (hits_body(&game->snake, next_head, growing)) {
         set_end_message(game, "Game over: the snake ran into itself.");
         game->running = false;
         return;
+    }
+
+    tail_copy = game->snake.segments[game->snake.length - 1];
+    new_length = game->snake.length + grow_amount;
+    if (new_length > game->snake.capacity) {
+        new_length = game->snake.capacity;
     }
 
     for (segment_index = game->snake.length - 1; segment_index > 0; --segment_index) {
@@ -322,11 +481,40 @@ static void advance_snake(Game *game) {
     }
 
     game->snake.segments[0] = next_head;
+
+    for (segment_index = game->snake.length; segment_index < new_length; ++segment_index) {
+        game->snake.segments[segment_index] = tail_copy;
+    }
+
+    game->snake.length = new_length;
+
+    if (game->snake.length >= game->winning_length) {
+        set_end_message(game, "You win: the snake reached the target length.");
+        game->running = false;
+        return;
+    }
+
+    if (growing) {
+        spawn_trophy(game);
+    }
 }
 
-static void pause_between_frames(void) {
-    /* Giovanni -> pacing: hold each frame long enough for the game speed to feel steady. */
-    napms(FRAME_DELAY_MS);
+static int frame_delay_ms(const Game *game) {
+    /* Giovanni -> pacing math: shorten the frame delay as the snake gets longer. */
+    int delay;
+
+    delay = FRAME_DELAY_MS - (game->snake.length - INITIAL_LENGTH) * 3;
+
+    if (delay < MIN_FRAME_DELAY_MS) {
+        delay = MIN_FRAME_DELAY_MS;
+    }
+
+    return delay;
+}
+
+static void pause_between_frames(const Game *game) {
+    /* Giovanni -> pacing: make the snake's speed increase with its current length. */
+    napms(frame_delay_ms(game));
 }
 
 static void cleanup_game(Game *game) {
@@ -345,7 +533,7 @@ int main(void) {
     draw_game(&game);
 
     while (game.running) {
-        pause_between_frames();
+        pause_between_frames(&game);
 
         if (shutdown_requested) {
             set_end_message(&game, "Game interrupted.");
