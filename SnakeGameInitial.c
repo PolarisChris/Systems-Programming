@@ -441,7 +441,7 @@ static bool snake_eats_trophy(const Game *game, Point next_head) {
 }
 
 static void advance_snake(Game *game) {
-    /* Giovanni -> gameplay step: move, grow on trophies, and stop on win/loss states. */
+    /* Chris | gameplay step: move, grow on trophies, and stop on win/loss states. */
     Point next_head;
     Point tail_copy;
     int segment_index;
@@ -500,7 +500,7 @@ static void advance_snake(Game *game) {
 }
 
 static int frame_delay_ms(const Game *game) {
-    /* Giovanni -> pacing math: shorten the frame delay as the snake gets longer. */
+    /* Chris | pacing math: shorten the frame delay as the snake gets longer. */
     int delay;
 
     delay = FRAME_DELAY_MS - (game->snake.length - INITIAL_LENGTH) * 3;
@@ -513,7 +513,7 @@ static int frame_delay_ms(const Game *game) {
 }
 
 static void pause_between_frames(const Game *game) {
-    /* Giovanni -> pacing: make the snake's speed increase with its current length. */
+    /* Chris | pacing: make the snake's speed increase with its current length. */
     napms(frame_delay_ms(game));
 }
 
